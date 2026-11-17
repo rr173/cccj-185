@@ -26,9 +26,11 @@ barcode_pipeline/
   db.py       SQLite schema and all persistence/coverage/contradiction logic
   server.py   controllable local HTTP mock of the partner service (stdlib)
   client.py   HTTPX client: ingest, dispatch, paging, retry, export
-  cli.py      start / resume / inspect / export / explain / serve commands
+  cli.py      start / resume / inspect / export / explain / serve + warehouse
+  warehouse/  bi-temporal historical warehouse (hdb/importer/query/facts/cli)
   __main__.py entry point that works under `python -I`
 tests/        unittest suite (hand-written expectations, no oracle reuse)
+demo/warehouse/  reproducible warehouse walkthrough and scale driver scripts
 vendor/       vendored httpx + pure-Python dependencies (no system pip needed)
 ```
 
@@ -159,8 +161,11 @@ The partner protocol implemented by the mock:
 python3 -I tests/run_all.py
 ```
 
-18 tests, all expectations hand-written (the back-filler is never used to
-generate them). Highlights:
+46 tests (18 pipeline + 28 warehouse), all expectations hand-written (the
+back-filler is never used to generate them). The historical warehouse is
+documented separately in [WAREHOUSE.md](WAREHOUSE.md).
+
+Pipeline highlights:
 
 * main walkthrough: 4 lines, EU page before CN/BAD, duplicate CN mapping,
   business invalid; both ingestion modes agree;
@@ -174,3 +179,19 @@ generate them). Highlights:
 * identical duplicate lines, 3000-line streaming file with small batches,
   late source-line mapping onto an already confirmed slot, service snapshot
   restart.
+
+Warehouse highlights (see [WAREHOUSE.md](WAREHOUSE.md)):
+
+* the canonical s1..s4 walkthrough against a hand-written point list:
+  conflict windows, dual-support normalization, retraction, half-open
+  endpoints and evidence-sensitive timeline segments;
+* late low revisions never overriding a higher head, retract-then-recover,
+  same-error-code invalid merging, normalized/invalid conflicts, market
+  context isolation, product-key immutability;
+* whole-batch rollback (bad tail record, same claim/revision different
+  content), batch idempotency including replay after retraction and after
+  source-DB deletion, a real SIGKILL mid-import retried in a new process,
+  concurrent writers getting distinct seqs and readers never seeing a
+  half-batch;
+* seq pinning while a batch lands during a long fact read, and the 20,000
+  claim / 200,000 fact streaming run verified under a 256 MiB memory cap.

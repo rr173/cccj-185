@@ -1,0 +1,50 @@
+== 1. real enrichment DB from the local pipeline ==
+   source enrichment db: /tmp/res-demo/src/demo.db (all inputs confirmed)
+== 2. canonical s1..s4 batches ==
+   admitted s1: knowledge_seq=1 new=1 dup=0
+   admitted s2: knowledge_seq=2 new=1 dup=0
+   admitted s3: knowledge_seq=3 new=1 dup=0
+   admitted s4: knowledge_seq=4 new=1 dup=0
+   -- hand-written point checklist --
+  [ok ] s2 @22: got='conflict' want='conflict'
+  [ok ] s2 @27: got='conflict' want='conflict'
+  [ok ] s2 @32: got=('normalized', '001') want=('normalized', '001')
+  [ok ] s3 @22: got=('normalized', '001') want=('normalized', '001')
+  [ok ] s3 @27: got=('normalized', '001') want=('normalized', '001')
+  [ok ] s3 @32: got=('normalized', '001') want=('normalized', '001')
+  [ok ] s3 @27 support claims: got=['A', 'B'] want=['A', 'B']
+  [ok ] s4 @22: got='missing' want='missing'
+  [ok ] s4 @27: got=('normalized', '001') want=('normalized', '001')
+  [ok ] s4 @32: got=('normalized', '001') want=('normalized', '001')
+  [ok ] s4 @40: got='missing' want='missing'
+  [ok ] s4 @27 only B: got=['B'] want=['B']
+  [ok ] @25 included: got='normalized' want='normalized'
+  [ok ] @35 excluded: got='missing' want='missing'
+  [ok ] s1 answer still 001: got='001' want='001'
+  [ok ] s2 answer still conflict: got='conflict' want='conflict'
+== 3. late low revision never overrides higher ==
+   admitted late-b1: knowledge_seq=5 new=0 dup=1
+   admitted c2: knowledge_seq=6 new=1 dup=0
+   admitted c1-late: knowledge_seq=7 new=1 dup=0
+  [ok ] C head stays rev2 interval: got=('C', 2, (0, 100)) want=('C', 2, (0, 100))
+== 4. retract then higher revision recovers ==
+   admitted d1: knowledge_seq=8 new=1 dup=0
+   admitted d2-retract: knowledge_seq=9 new=1 dup=0
+  [ok ] D head after retract: got=(2, 'retract') want=(2, 'retract')
+   admitted d3-recover: knowledge_seq=10 new=1 dup=0
+  [ok ] D head after recovery: got=(3, 'upsert') want=(3, 'upsert')
+  [ok ] D recovered at rev3 (merged 001 answer): got=('normalized', '001', 3) want=('normalized', '001', 3)
+== 5. same error code invalid claims merge ==
+   admitted e1: knowledge_seq=11 new=1 dup=0
+   admitted e2: knowledge_seq=12 new=1 dup=0
+  [ok ] merged invalid: got=('invalid', 'BAD_BARCODE', ['E1', 'E2']) want=('invalid', 'BAD_BARCODE', ['E1', 'E2'])
+== 6. market context isolation ==
+   admitted eu1: knowledge_seq=13 new=1 dup=0
+  [ok ] CN answer: got='001' want='001'
+  [ok ] EU answer: got='555' want='555'
+  [ok ] unknown market missing: got='missing' want='missing'
+== 7. enrich + impact recomputation list ==
+  [ok ] impact lines (22,27 only): got=[2, 3] want=[2, 3]
+   enriched rows: 4 counts={'normalized': 4, 'invalid': 0, 'conflict': 0, 'missing': 0}
+   impact s2->s3 changed lines: [2, 3]
+ALL HAND-WRITTEN CHECKS PASSED

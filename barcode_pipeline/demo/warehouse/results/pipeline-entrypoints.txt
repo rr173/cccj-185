@@ -1,0 +1,5 @@
+start rc: 0
+deliverable: True | source_lines: 2
+export rc: 0
+exported states: ['normalized', 'invalid'] values: ['001', None]
+warehouse import seq: 1 from real pipeline DB

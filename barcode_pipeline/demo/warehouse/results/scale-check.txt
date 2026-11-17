@@ -1,0 +1,37 @@
+{
+  "event": "check_done",
+  "row_count": 200000,
+  "state_counts": {
+    "normalized": 190000,
+    "invalid": 0,
+    "conflict": 0,
+    "missing": 10000
+  },
+  "anchor_results": {
+    "P0000@0": [
+      "normalized",
+      "001"
+    ],
+    "P0000@398": [
+      "normalized",
+      "001"
+    ],
+    "P0042@100": [
+      "normalized",
+      "001"
+    ],
+    "P0099@398": [
+      "normalized",
+      "001"
+    ],
+    "P0099@500": [
+      "missing",
+      null
+    ]
+  },
+  "sampled_rows": 200,
+  "memory_cap_bytes": 268435456,
+  "peak_rss_kib": 46556,
+  "peak_rss_mib": 45.5,
+  "under_cap": true
+}

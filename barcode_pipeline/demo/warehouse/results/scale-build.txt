@@ -1,0 +1,6 @@
+{
+  "event": "build_done",
+  "claims": 20000,
+  "facts": 200000,
+  "workdir": "/tmp/res-scale"
+}

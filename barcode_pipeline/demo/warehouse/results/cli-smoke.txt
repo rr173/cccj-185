@@ -1,0 +1,22 @@
+### warehouse CLI smoke (rc shown per command)
+## import replay s1 (expect knowledge_seq 1, replayed true)
+{
+  "batch_id": "s1",
+  "change_count": 1,
+  "duplicate_rows": 1,
+  "event": "warehouse_import",
+  "evidence_digest": "1c99ec5a18bab7a8c512edabb634d072e8e5491ff4ef7297b0f8640662040b8f",
+  "knowledge_seq": 1,
+  "new_revisions": 0,
+  "replayed": true,
+  "retractions": 0,
+  "status": "admitted"
+}
+## lookup seq2 @22 (expect conflict)
+{'knowledge_seq': 2, 'state': 'conflict', 'normalized_value': None}
+claims: ['A', 'B']
+## timeline seq3 [10,40)
+[(10, 25, 'normalized', ['A']), (25, 35, 'normalized', ['A', 'B']), (35, 40, 'normalized', ['A'])]
+## output refusal (expect rc=3)
+enrich refused: output already exists: /tmp/res-demo/enriched.jsonl
+rc=3

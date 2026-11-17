@@ -11,6 +11,8 @@ from typing import Any
 from . import client, db
 from .config import Config
 from .server import build_server
+from .warehouse.cli import build_warehouse_parser
+from .warehouse.hdb import WarehouseError
 
 
 def _load_config(path: str | None) -> Config:
@@ -207,6 +209,8 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--log")
     v.add_argument("--verbose", action="store_true")
     v.set_defaults(func=cmd_serve)
+
+    build_warehouse_parser(sub)
     return p
 
 
@@ -215,7 +219,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (client.HardProtocolError, ValueError, KeyError, FileNotFoundError) as exc:
+    except (client.HardProtocolError, WarehouseError, ValueError, KeyError,
+            FileNotFoundError) as exc:
         # deterministic, user-correctable failures: no Python traceback
         print(f"error: {exc}", file=sys.stderr)
         return 1
