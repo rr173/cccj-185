@@ -1,0 +1,7 @@
+{
+  "base_url": "http://127.0.0.1:8091",
+  "batch_size": 2,
+  "ingestion": "streaming",
+  "timeout_s": 5.0,
+  "retry": {"max_attempts": 4, "backoff_base_s": 0.02, "backoff_max_s": 0.2}
+}

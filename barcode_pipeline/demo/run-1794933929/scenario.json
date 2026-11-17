@@ -1,0 +1,9 @@
+{
+  "rules": {
+    "X|CN|v1": "001",
+    "X|EU|v1": "999",
+    "BAD|CN|v1": "INVALID:BAD_BARCODE"
+  },
+  "page_size": 1,
+  "page_order": "desc"
+}

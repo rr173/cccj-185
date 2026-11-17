@@ -1,0 +1,4 @@
+{"barcode": "X", "market": "CN", "rule_version": "v1", "sku": "A-100", "owner": "team-a"}
+{"barcode": "X", "market": "CN", "rule_version": "v1", "sku": "A-101", "owner": "team-b"}
+{"barcode": "X", "market": "EU", "rule_version": "v1", "sku": "A-102", "owner": "team-c"}
+{"barcode": "BAD", "market": "CN", "rule_version": "v1", "sku": "A-103", "owner": "team-d"}
