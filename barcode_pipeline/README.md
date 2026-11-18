@@ -28,9 +28,11 @@ barcode_pipeline/
   client.py   HTTPX client: ingest, dispatch, paging, retry, export
   cli.py      start / resume / inspect / export / explain / serve + warehouse
   warehouse/  bi-temporal historical warehouse (hdb/importer/query/facts/cli)
+  warehouse/replication/  offline origin identity, prefix digests, framed
+                          packages, managed replicas (see REPLICATION.md)
   __main__.py entry point that works under `python -I`
 tests/        unittest suite (hand-written expectations, no oracle reuse)
-demo/warehouse/  reproducible warehouse walkthrough and scale driver scripts
+demo/warehouse/  reproducible warehouse, replication and scale driver scripts
 vendor/       vendored httpx + pure-Python dependencies (no system pip needed)
 ```
 
@@ -161,9 +163,10 @@ The partner protocol implemented by the mock:
 python3 -I tests/run_all.py
 ```
 
-46 tests (18 pipeline + 28 warehouse), all expectations hand-written (the
-back-filler is never used to generate them). The historical warehouse is
-documented separately in [WAREHOUSE.md](WAREHOUSE.md).
+71 tests (18 pipeline + 53 warehouse, including 25 offline-replication tests),
+all expectations hand-written (the back-filler is never used to generate them).
+The historical warehouse is documented in [WAREHOUSE.md](WAREHOUSE.md) and its
+offline replication protocol in [REPLICATION.md](REPLICATION.md).
 
 Pipeline highlights:
 

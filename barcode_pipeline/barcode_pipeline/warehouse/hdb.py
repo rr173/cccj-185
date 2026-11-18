@@ -181,6 +181,21 @@ _SCHEMA_DDL = (
     " claim_id, revision, valid_from, valid_to, kind)",
     "CREATE INDEX IF NOT EXISTS idx_rev_product"
     " ON wh_claim_revisions(supplier, item_id, market)",
+    # Replication ledger: one row per admitted batch on both source and
+    # managed replicas, carrying the prefix digest *after* that batch.  The
+    # row is inserted in the same transaction as the batch itself, so a
+    # prefix is never visible without its replication registration.  On a
+    # plain wh1 warehouse the table simply stays empty.
+    """
+    CREATE TABLE IF NOT EXISTS wh_replication_log (
+        knowledge_seq   INTEGER PRIMARY KEY,
+        prefix_digest   TEXT NOT NULL,
+        log_kind        TEXT NOT NULL,           -- source | source-backfill
+                                                 -- | replica-apply
+        recorded_at     REAL NOT NULL,
+        FOREIGN KEY(knowledge_seq) REFERENCES wh_batches(knowledge_seq)
+    )
+    """,
 )
 
 

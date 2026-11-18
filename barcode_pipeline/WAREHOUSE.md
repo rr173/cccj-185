@@ -160,11 +160,28 @@ python3 -I tests/run_all.py
 ```
 
 The warehouse test modules are `tests/test_warehouse_walkthrough.py`,
-`tests/test_warehouse_semantics.py` and
-`tests/test_warehouse_scale_and_pinning.py`. They build enrichment DBs with the
-real pipeline and mock service (never by hand-editing tables), cover whole-
+`tests/test_warehouse_semantics.py`,
+`tests/test_warehouse_scale_and_pinning.py` and
+`tests/test_warehouse_replication.py`. They build enrichment DBs with the real
+pipeline and mock service (never by hand-editing tables), cover whole-
 batch rollback (tail bad record, same-revision different content), a real
 SIGKILL-then-retry admission, concurrent imports, source-DB deletion, version
-pinning during a long fact read, and the 256 MiB streaming check. Runtime-
-generated scale data is written only to the chosen workdir, never into the
-repository.
+pinning during a long fact read, the 256 MiB streaming check, and the full
+offline-replication surface (origin identity, prefix-digest forks, framed
+package tampering, gap/divergence/corruption verdicts, concurrent receivers,
+SIGKILL recovery and a 70k-revision capped package run). Runtime-generated
+scale data is written only to the chosen workdir, never into the repository.
+
+## Offline replication
+
+When the report machine cannot reach the partner service or the enrichment
+library, the warehouse history can be copied to a managed **replica** through
+self-describing offline packages that carry logical prefix digests (so two
+histories with the same origin and the same max seq cannot be silently joined
+when their content differs). The replica serves the identical `lookup`,
+`timeline`, `enrich` and `impact` semantics; direct business imports are
+refused and acceptance needs no network, source DB or enrichment DB. See
+[REPLICATION.md](REPLICATION.md) for the exact digest definition, wire format,
+commands, verdicts and migration boundaries, and
+`demo/warehouse/replica_drill.py` /
+`demo/warehouse/replica_scale_driver.py` for reproducible end-to-end drills.

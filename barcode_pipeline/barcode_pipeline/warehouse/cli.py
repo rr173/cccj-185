@@ -3,12 +3,18 @@
 Subcommands (all offline — the source enrichment DB and warehouse are local
 SQLite files; no network service is called):
 
-  import    admit one change JSONL batch against a read-only enrichment DB
-  lookup    point-in-time answer for one (supplier, item_id, market, time)
-  timeline  maximal constant segments over a finite half-open range
-  enrich    stream a fact JSONL through the warehouse at one pinned seq
-  impact    compare two seqs over one fact file, emit recomputable rows
-  inspect   batch/claim ledger and revision history
+  import         admit one change JSONL batch against a read-only enrichment DB
+  lookup         point-in-time answer for one (supplier, item_id, market, time)
+  timeline       maximal constant segments over a finite half-open range
+  enrich         stream a fact JSONL through the warehouse at one pinned seq
+  impact         compare two seqs over one fact file, emit recomputable rows
+  inspect        batch/claim ledger and revision history
+  origin init    bind the durable source-origin identity (idempotent)
+  replica init   create an empty managed replica bound to one origin
+  package export stream an offline (after, through] package from a source
+  package inspect read-only verdict of a package against a target warehouse
+  package apply  verify and atomically accept a whole package on a replica
+  replica status report role, origin, committed seq and prefix digest
 """
 
 from __future__ import annotations
@@ -23,6 +29,11 @@ from . import facts, hdb
 from .hdb import WarehouseError
 from .importer import import_batch
 from .query import lookup, timeline
+from .replication import origin as origin_mod
+from .replication import replica as replica_mod
+from .replication.exporter import export_package
+from .replication.package import PackageError
+from .replication.replica import apply_package, inspect_package
 
 
 def _print(obj: Any) -> None:
@@ -195,6 +206,96 @@ def _human_inspect(report: dict[str, Any]) -> None:
         )
 
 
+# --------------------------------------------------------------------------
+# Offline replication commands
+# --------------------------------------------------------------------------
+
+def cmd_origin_init(args: argparse.Namespace) -> int:
+    conn = hdb.open_warehouse(args.warehouse)
+    try:
+        _print(origin_mod.initialize_origin(
+            conn, origin_id=args.origin_id
+        ))
+        return 0
+    finally:
+        conn.close()
+
+
+def cmd_replica_init(args: argparse.Namespace) -> int:
+    conn = hdb.open_warehouse(args.warehouse)
+    try:
+        _print(origin_mod.initialize_replica(conn, args.origin_id))
+        return 0
+    finally:
+        conn.close()
+
+
+def cmd_replica_status(args: argparse.Namespace) -> int:
+    conn = hdb.open_warehouse(args.warehouse)
+    try:
+        _print(origin_mod.replica_status(conn))
+        return 0
+    finally:
+        conn.close()
+
+
+def cmd_package_export(args: argparse.Namespace) -> int:
+    through = "latest" if args.through == "latest" else int(args.through)
+    report = export_package(
+        args.warehouse, int(args.after), through, args.output
+    )
+    _print(report)
+    return 0
+
+
+def cmd_package_inspect(args: argparse.Namespace) -> int:
+    conn = hdb.open_warehouse(args.warehouse)
+    try:
+        report = inspect_package(args.package, conn)
+    finally:
+        conn.close()
+    _print(report)
+    # Non-zero exit for every rejection verdict so scripts can branch.
+    return 0 if report["verdict"] in (
+        replica_mod.VERDICT_APPENDABLE, replica_mod.VERDICT_REPLAY
+    ) else 2
+
+
+def cmd_package_apply(args: argparse.Namespace) -> int:
+    conn = hdb.open_warehouse(args.warehouse)
+    try:
+        hook = _replica_gate_hook()
+        report = apply_package(args.package, conn, pre_commit_hook=hook)
+    finally:
+        conn.close()
+    _print(report)
+    return 0
+
+
+def _replica_gate_hook():
+    """Build the deterministic pre-commit rendezvous hook, or None.
+
+    Dormant unless ``BARCODE_REPLICA_GATE`` names a FIFO.  When set, the hook
+    touches ``BARCODE_REPLICA_GATE_SENTINEL`` (if given) and then blocks on
+    one byte from the FIFO, all inside the apply write transaction after the
+    new prefix is fully staged.
+    """
+    gate = os.environ.get("BARCODE_REPLICA_GATE")
+    if not gate:
+        return None
+    sentinel = os.environ.get("BARCODE_REPLICA_GATE_SENTINEL")
+
+    def hook() -> None:
+        if sentinel:
+            with open(sentinel, "w", encoding="utf-8") as fh:
+                fh.write("at-gate")
+        if os.path.exists(gate):
+            with open(gate, "r", encoding="utf-8") as fh:
+                fh.read(1)
+
+    return hook
+
+
 def build_warehouse_parser(sub: argparse._SubParsersAction) -> None:
     wh = sub.add_parser("warehouse", help="bi-temporal historical warehouse")
     wsub = wh.add_subparsers(dest="wh_command", required=True)
@@ -205,7 +306,6 @@ def build_warehouse_parser(sub: argparse._SubParsersAction) -> None:
     imp.add_argument("--changes", required=True, help="change JSONL file")
     imp.add_argument("--batch-id", required=True)
     imp.set_defaults(func=cmd_import)
-
     lk = wsub.add_parser("lookup", help="point lookup at one business time")
     lk.add_argument("--warehouse", required=True)
     lk.add_argument("--supplier", required=True)
@@ -246,6 +346,59 @@ def build_warehouse_parser(sub: argparse._SubParsersAction) -> None:
     ins.add_argument("--claim")
     ins.add_argument("--json", action="store_true")
     ins.set_defaults(func=cmd_inspect)
+
+    # --- offline replication ---------------------------------------------
+    origin = wsub.add_parser(
+        "origin", help="source-origin identity management"
+    )
+    osub = origin.add_subparsers(dest="origin_command", required=True)
+    oi = osub.add_parser(
+        "init", help="bind (or re-assert) the durable source origin identity"
+    )
+    oi.add_argument("--warehouse", required=True)
+    oi.add_argument(
+        "--origin-id",
+        help="explicit identity (default: generated); cannot be changed later",
+    )
+    oi.set_defaults(func=cmd_origin_init)
+
+    replica = wsub.add_parser(
+        "replica", help="managed replica lifecycle and status"
+    )
+    rsub = replica.add_subparsers(dest="replica_command", required=True)
+    ri = rsub.add_parser(
+        "init", help="turn an empty warehouse into a managed replica"
+    )
+    ri.add_argument("--warehouse", required=True)
+    ri.add_argument("--origin-id", required=True)
+    ri.set_defaults(func=cmd_replica_init)
+    rs = rsub.add_parser("status", help="role, origin, prefix and seq status")
+    rs.add_argument("--warehouse", required=True)
+    rs.set_defaults(func=cmd_replica_status)
+
+    pkg = wsub.add_parser(
+        "package", help="offline replication package export/inspection/apply"
+    )
+    psub = pkg.add_subparsers(dest="package_command", required=True)
+
+    pe = psub.add_parser("export", help="export range (after, through]")
+    pe.add_argument("--warehouse", required=True)
+    pe.add_argument("--after", required=True, type=int)
+    pe.add_argument("--through", required=True, help="seq integer or 'latest'")
+    pe.add_argument("--output", required=True)
+    pe.set_defaults(func=cmd_package_export)
+
+    pi = psub.add_parser(
+        "inspect", help="read-only verdict of a package against a warehouse"
+    )
+    pi.add_argument("--warehouse", required=True)
+    pi.add_argument("--package", required=True)
+    pi.set_defaults(func=cmd_package_inspect)
+
+    pa = psub.add_parser("apply", help="verify and accept a whole package")
+    pa.add_argument("--warehouse", required=True)
+    pa.add_argument("--package", required=True)
+    pa.set_defaults(func=cmd_package_apply)
 
 
 def main(argv: list[str] | None = None) -> int:

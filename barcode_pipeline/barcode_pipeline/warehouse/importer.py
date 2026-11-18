@@ -29,6 +29,8 @@ from typing import Any
 
 from ..digest import canonical_json, sha256_hex
 from . import hdb
+from .replication import identity
+from .replication.origin import guard_import_allowed
 from .hdb import (
     INT64_MAX,
     KIND_RETRACT,
@@ -60,30 +62,11 @@ def _content_digest(record: dict[str, Any]) -> str:
     Covers the parsed original business row, the service result and the
     service provenance — never just the normalized value — plus the interval
     and product key, so a same claim/revision re-presentation with any
-    differing detail is detectable.
+    differing detail is detectable.  The definition lives in
+    :mod:`replication.identity` so offline-package prefix digests and
+    admission-time content digests can never drift apart.
     """
-    payload = {
-        "claim_id": record["claim_id"],
-        "revision": record["revision"],
-        "kind": record["kind"],
-    }
-    if record["kind"] == KIND_UPSERT:
-        payload.update(
-            {
-                "supplier": record["supplier"],
-                "item_id": record["item_id"],
-                "market": record["market"],
-                "valid_from": record["valid_from"],
-                "valid_to": record["valid_to"],
-                "source_line": record["source_line"],
-                "source": record["source_obj"],
-                "business_status": record["business_status"],
-                "normalized_value": record["normalized_value"],
-                "error_code": record["error_code"],
-                "result_source": record["result_source"],
-            }
-        )
-    return sha256_hex(canonical_json(payload))
+    return identity.revision_digest(record)
 
 
 def _evidence_record(record: dict[str, Any]) -> dict[str, Any]:
@@ -239,6 +222,9 @@ def import_batch(
     if not isinstance(batch_id, str) or not batch_id:
         raise WarehouseError("batch_id must be a non-empty string")
 
+    # Managed replicas only accept history through replication packages.
+    guard_import_allowed(conn)
+
     change_digest = sha256_file(change_path)
     existing = conn.execute(
         "SELECT * FROM wh_batches WHERE batch_id=?", (batch_id,)
@@ -325,9 +311,9 @@ def _validate_and_resolve(
 
             if change["kind"] == KIND_RETRACT:
                 key = (cid, rev)
-                digest = sha256_hex(canonical_json(
+                digest = identity.revision_digest(
                     {"claim_id": cid, "revision": rev, "kind": KIND_RETRACT}
-                ))
+                )
                 # Duplicates are identified by stored content alone and never
                 # re-validated against the *current* head: an old batch must
                 # replay even after the claim was retracted or recovered.
@@ -541,6 +527,7 @@ def _commit_batch(
                         st.head_rev, st.head_kind, seq,
                     ),
                 )
+        _register_replication(conn, batch_id, source_db_path, seq, summary)
         # Crash point: everything is staged in the uncommitted transaction.
         # A SIGKILL here leaves the database without this batch, so a new
         # process can retry the same batch_id cleanly.
@@ -550,3 +537,55 @@ def _commit_batch(
         conn.rollback()
         raise
     summary["knowledge_seq"] = seq
+
+
+def _register_replication(
+    conn: sqlite3.Connection,
+    batch_id: str,
+    source_db_path: str,
+    seq: int,
+    summary: dict[str, Any],
+) -> None:
+    """Register the new prefix in the replication log, atomically with batch.
+
+    Only a source-origin warehouse registers here; plain wh1 databases keep
+    the old behaviour (empty log).  The digest is computed from the rows just
+    inserted inside this transaction, so batch history and its replication
+    registration become visible together or not at all.
+    """
+    from .replication.origin import role_of
+    from .replication.identity import (
+        EMPTY_PREFIX_DIGEST,
+        ROLE_SOURCE,
+        batch_unit,
+        chain_step,
+        revision_row_to_rec,
+    )
+
+    if role_of(conn) != ROLE_SOURCE:
+        return
+    prev = conn.execute(
+        "SELECT prefix_digest FROM wh_replication_log"
+        " WHERE knowledge_seq=?",
+        (seq - 1,),
+    ).fetchone()
+    prev_digest = prev["prefix_digest"] if prev is not None else EMPTY_PREFIX_DIGEST
+    batch_row = conn.execute(
+        "SELECT * FROM wh_batches WHERE knowledge_seq=?", (seq,)
+    ).fetchone()
+    rev_rows = conn.execute(
+        "SELECT * FROM wh_claim_revisions WHERE knowledge_seq=? ORDER BY id ASC",
+        (seq,),
+    ).fetchall()
+    if len(rev_rows) != int(batch_row["new_revisions"]):
+        raise WarehouseError(
+            "internal error: revision count disagrees with batch ledger"
+        )
+    recs = [revision_row_to_rec(r) for r in rev_rows]
+    digest = chain_step(prev_digest, batch_unit(dict(batch_row), recs))
+    conn.execute(
+        "INSERT INTO wh_replication_log(knowledge_seq, prefix_digest,"
+        " log_kind, recorded_at) VALUES(?, ?, ?, ?)",
+        (seq, digest, "source", time.time()),
+    )
+    summary["prefix_digest"] = digest

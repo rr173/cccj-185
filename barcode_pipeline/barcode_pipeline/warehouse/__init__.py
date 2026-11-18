@@ -29,6 +29,13 @@ from .hdb import (
 from .importer import import_batch
 from .query import lookup, timeline
 from .facts import enrich_file, impact_file
+from .replication.origin import (
+    initialize_origin,
+    initialize_replica,
+    replica_status,
+)
+from .replication.exporter import export_package
+from .replication.replica import inspect_package, apply_package
 
 __all__ = [
     "WarehouseError",
@@ -41,4 +48,10 @@ __all__ = [
     "timeline",
     "enrich_file",
     "impact_file",
+    "initialize_origin",
+    "initialize_replica",
+    "replica_status",
+    "export_package",
+    "inspect_package",
+    "apply_package",
 ]
